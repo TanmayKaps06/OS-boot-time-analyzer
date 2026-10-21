@@ -11,6 +11,8 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import pandas as pd
+
 from .models import BootSnapshot
 
 BOOT_TIME_PATTERN = re.compile(r"sec\s*=\s*(\d+)")
@@ -75,6 +77,43 @@ def get_login_window_seconds(boot_time: datetime) -> tuple[Optional[float], str]
         if 0 <= seconds <= 2 * 60 * 60:
             return round(seconds, 1), "Observed from the first retained loginwindow log event."
     return None, "Unavailable: login-window logs could not be read or parsed."
+
+
+def parse_launchctl_list(output: str) -> pd.DataFrame:
+    """Parse active launchd jobs from ``launchctl list`` output.
+
+    The PID column is ``-`` for a job that is loaded but is not currently
+    running. Such jobs are excluded: the returned list is intentionally a
+    snapshot of active jobs, not every configured startup job.
+    """
+    services: list[dict[str, object]] = []
+    for line in output.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) != 3 or parts[0] == "PID":
+            continue
+        pid_text, status, label = parts
+        if not pid_text.isdigit():
+            continue
+        services.append(
+            {"Service label": label, "Process ID": int(pid_text), "Status": status}
+        )
+    return pd.DataFrame(services, columns=["Service label", "Process ID", "Status"])
+
+
+def get_active_background_services() -> tuple[pd.DataFrame, str]:
+    """Return currently running launchd jobs in the signed-in user's domain."""
+    empty = pd.DataFrame(columns=["Service label", "Process ID", "Status"])
+    if platform.system() != "Darwin":
+        return empty, "Unavailable: background-service collection runs on macOS only."
+
+    output = _run(["launchctl", "list"])
+    if output is None:
+        return empty, "Unavailable: macOS did not allow launch service information to be read."
+    services = parse_launchctl_list(output)
+    return services, (
+        "This is a current snapshot of running launchd jobs in your signed-in "
+        "user session. It does not identify which service affected boot speed."
+    )
 
 
 def collect_snapshot() -> BootSnapshot:

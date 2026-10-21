@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from boot_analyzer.collector import collect_snapshot
+from boot_analyzer.collector import collect_snapshot, get_active_background_services
 from boot_analyzer.database import load_history, save_snapshot
 from boot_analyzer.recommendations import make_recommendations
 
@@ -38,6 +38,8 @@ def collect_once_for_view() -> object:
 snapshot = collect_once_for_view()
 save_snapshot(DATABASE_PATH, snapshot)
 history = load_history(DATABASE_PATH)
+services, services_note = get_active_background_services()
+services_available = not services_note.startswith("Unavailable:")
 
 st.title("Mac Boot Time Analyzer")
 st.caption("A simple record of available macOS startup information.")
@@ -56,6 +58,22 @@ st.caption(snapshot.login_window_note)
 if snapshot.collection_note:
     st.info(snapshot.collection_note)
 st.info("Values marked unavailable are not estimated. Some boot events may no longer be in the macOS logs when this app starts.")
+
+st.metric(
+    "Active background services", str(len(services)) if services_available else "Unavailable",
+    help="Currently running launchd jobs in the signed-in user's session. Loaded but inactive jobs are not counted.",
+)
+st.caption(services_note)
+with st.expander("View running background services"):
+    if not services_available:
+        st.caption("No running service details are available.")
+    elif services.empty:
+        st.caption("No active background services were found in this user session.")
+    else:
+        st.dataframe(
+            services.sort_values("Service label"), hide_index=True, use_container_width=True
+        )
+    st.caption("This list is read-only. The app does not stop, disable, or change services.")
 
 st.subheader("Boot history")
 st.write(latest_comparison(history))
