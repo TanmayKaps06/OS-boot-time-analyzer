@@ -117,7 +117,6 @@ def get_active_background_services() -> tuple[pd.DataFrame, str]:
 
 
 def collect_snapshot() -> BootSnapshot:
-    """Collect available facts for the current boot without inventing gaps."""
     now = datetime.now().astimezone()
     boot_time = get_boot_time()
     if boot_time is None:
